@@ -1,82 +1,53 @@
+import { useMemo } from "react";
 import "./styles.css";
+import { BatchesPanel } from "./components/BatchesPanel";
+import { InspectionForm } from "./components/InspectionForm";
+import { InspectionsPanel } from "./components/InspectionsPanel";
+import { TrendsPanel } from "./components/TrendsPanel";
+import { WorkOrdersPanel } from "./components/WorkOrdersPanel";
+import { isBatchUsable, isOrderOpen, trendOf } from "./domain";
+import { useStore, StoreProvider } from "./store";
+import { ROLES, Role } from "./types";
 
 const project = {
-  "id": "hxwl-09",
-  "port": 5109,
-  "title": "半导体洁净室巡检",
-  "subtitle": "洁净等级阈值、粒子计数与异常处理看板",
-  "stack": "React + Vite + TypeScript + CSS",
-  "theme": [
-    "#0f766e",
-    "#2563eb",
-    "#e11d48"
-  ],
-  "domain": "洁净室巡检",
-  "users": [
-    "巡检员",
-    "厂务工程师",
-    "班组长"
-  ],
-  "metrics": [
-    "粒子异常",
-    "压差异常",
-    "温湿度偏移",
-    "待处理"
-  ],
-  "filters": [
-    "ISO 5",
-    "ISO 6",
-    "ISO 7",
-    "黄光区"
-  ],
-  "fields": [
-    "房间编号",
-    "洁净等级",
-    "粒子计数",
-    "温湿度",
-    "压差",
-    "设备状态",
-    "处理备注"
-  ],
-  "records": [
-    [
-      "CR-1201",
-      "ISO 5",
-      "异常",
-      "0.5um粒子超限，已通知厂务"
-    ],
-    [
-      "CR-2107",
-      "ISO 6",
-      "稳定",
-      "压差15Pa，温湿度正常"
-    ],
-    [
-      "Y-0302",
-      "黄光区",
-      "关注",
-      "湿度接近上限"
-    ]
-  ]
+  id: "hxwl-09",
+  port: 5109,
+  title: "半导体洁净室巡检",
+  subtitle: "过滤器压差趋势监测与更换工单闭环：登记 → 自动建单 → 派工 → 锁定读数 → 备件更换 → 复测关闭",
+  stack: "React + Vite + TypeScript + CSS",
 };
 
-const statusColors = ["status-ok", "status-watch", "status-danger"];
+function MetricCards() {
+  const { state } = useStore();
 
-function MetricCard({ label, value, index }: { label: string; value: string; index: number }) {
+  const metrics = useMemo(() => {
+    const overLimit = state.filters.filter((f) => trendOf(state, f.id).overLimit).length;
+    const rising = state.filters.filter((f) => trendOf(state, f.id).rising && !trendOf(state, f.id).overLimit).length;
+    const open = state.orders.filter(isOrderOpen).length;
+    const staleBatches = state.batches.filter((b) => !isBatchUsable(b)).length;
+    return [
+      { label: "超限过滤器", value: overLimit, cls: "status-danger" },
+      { label: "连续上升（未超限）", value: rising, cls: "status-watch" },
+      { label: "未关闭工单", value: open, cls: "status-watch" },
+      { label: "过期备件批次", value: staleBatches, cls: "status-danger" },
+    ];
+  }, [state]);
+
   return (
-    <article className="metric-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <i className={statusColors[index % statusColors.length]} />
-    </article>
+    <section className="metrics-grid">
+      {metrics.map((m) => (
+        <article className="metric-card" key={m.label}>
+          <span>{m.label}</span>
+          <strong>{m.value}</strong>
+          <i className={m.cls} />
+        </article>
+      ))}
+    </section>
   );
 }
 
-function App() {
-  const values = project.metrics.map((metric: string, index: number) => {
-    const base = [84, 12, 31, 7][index % 4];
-    return String(base + index * 3);
-  });
+function Shell() {
+  const { role, setRole, reset, toasts } = useStore();
 
   return (
     <main className="app-shell">
@@ -85,75 +56,66 @@ function App() {
           <p className="eyebrow">{project.id} · port {project.port}</p>
           <h1>{project.title}</h1>
           <p className="subtitle">{project.subtitle}</p>
+          <div className="role-switch">
+            <span>当前角色</span>
+            <div className="chips">
+              {ROLES.map((r: Role) => (
+                <button
+                  key={r}
+                  className={role === r ? "active" : ""}
+                  onClick={() => setRole(r)}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
         <div className="stack-card">
           <span>技术栈</span>
           <strong>{project.stack}</strong>
+          <span className="stack-note">
+            角色权限：巡检员登记读数；厂务工程师/班组长派工、锁定、选批次更换、复测关闭、补录。
+          </span>
+          <button className="reset-btn" onClick={reset}>
+            重置演示数据
+          </button>
         </div>
       </section>
 
-      <section className="metrics-grid">
-        {project.metrics.map((metric: string, index: number) => (
-          <MetricCard key={metric} label={metric} value={values[index]} index={index} />
+      <MetricCards />
+
+      <InspectionForm />
+
+      <TrendsPanel />
+
+      <WorkOrdersPanel />
+
+      <BatchesPanel />
+
+      <InspectionsPanel />
+
+      <footer className="page-foot">
+        数据保存在浏览器 localStorage，刷新后趋势、工单状态与批次占用关系保持一致。
+      </footer>
+
+      <div className="toast-stack">
+        {toasts.map((t) => (
+          <div key={t.id} className={`toast toast-${t.kind}`}>
+            {t.kind === "ok" ? "✓ " : "✕ "}
+            {t.text}
+          </div>
         ))}
-      </section>
-
-      <section className="workspace">
-        <aside className="panel narrow">
-          <h2>角色</h2>
-          <div className="chips">
-            {project.users.map((user: string) => (
-              <span key={user}>{user}</span>
-            ))}
-          </div>
-          <h2>筛选</h2>
-          <div className="chips muted">
-            {project.filters.map((filter: string) => (
-              <button key={filter}>{filter}</button>
-            ))}
-          </div>
-        </aside>
-
-        <section className="panel">
-          <div className="section-heading">
-            <div>
-              <p>{project.domain}</p>
-              <h2>记录字段</h2>
-            </div>
-            <button className="primary-action">新增记录</button>
-          </div>
-          <div className="field-grid">
-            {project.fields.map((field: string) => (
-              <label key={field}>
-                <span>{field}</span>
-                <input placeholder={"填写" + field} />
-              </label>
-            ))}
-          </div>
-        </section>
-      </section>
-
-      <section className="records panel">
-        <div className="section-heading">
-          <div>
-            <p>示例数据</p>
-            <h2>近期记录</h2>
-          </div>
-          <button>导出摘要</button>
-        </div>
-        <div className="record-list">
-          {project.records.map((record: string[], index: number) => (
-            <article key={record.join("-")} className="record-card">
-              <div className="record-index">{String(index + 1).padStart(2, "0")}</div>
-              <div>
-                <h3>{record[0]}</h3>
-                <p>{record.slice(1).join(" · ")}</p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
+      </div>
     </main>
+  );
+}
+
+function App() {
+  return (
+    <StoreProvider>
+      <Shell />
+    </StoreProvider>
   );
 }
 
