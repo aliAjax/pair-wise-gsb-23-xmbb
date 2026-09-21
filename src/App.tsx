@@ -1,158 +1,109 @@
+import { useMemo, useState } from "react";
 import "./styles.css";
+import type { AppState } from "./domain";
+import { dpLevel, openWorkOrders } from "./domain";
+import { useStore } from "./store";
+import { InspectionTab } from "./components/InspectionTab";
+import { TrendTab } from "./components/TrendTab";
+import { WorkOrdersTab } from "./components/WorkOrdersTab";
+import { BatchesTab } from "./components/BatchesTab";
 
-const project = {
-  "id": "hxwl-09",
-  "port": 5109,
-  "title": "半导体洁净室巡检",
-  "subtitle": "洁净等级阈值、粒子计数与异常处理看板",
-  "stack": "React + Vite + TypeScript + CSS",
-  "theme": [
-    "#0f766e",
-    "#2563eb",
-    "#e11d48"
-  ],
-  "domain": "洁净室巡检",
-  "users": [
-    "巡检员",
-    "厂务工程师",
-    "班组长"
-  ],
-  "metrics": [
-    "粒子异常",
-    "压差异常",
-    "温湿度偏移",
-    "待处理"
-  ],
-  "filters": [
-    "ISO 5",
-    "ISO 6",
-    "ISO 7",
-    "黄光区"
-  ],
-  "fields": [
-    "房间编号",
-    "洁净等级",
-    "粒子计数",
-    "温湿度",
-    "压差",
-    "设备状态",
-    "处理备注"
-  ],
-  "records": [
-    [
-      "CR-1201",
-      "ISO 5",
-      "异常",
-      "0.5um粒子超限，已通知厂务"
-    ],
-    [
-      "CR-2107",
-      "ISO 6",
-      "稳定",
-      "压差15Pa，温湿度正常"
-    ],
-    [
-      "Y-0302",
-      "黄光区",
-      "关注",
-      "湿度接近上限"
-    ]
-  ]
-};
+type TabId = "inspection" | "trend" | "orders" | "batches";
 
-const statusColors = ["status-ok", "status-watch", "status-danger"];
+const TABS: Array<{ id: TabId; label: string }> = [
+  { id: "inspection", label: "巡检登记" },
+  { id: "trend", label: "压差趋势" },
+  { id: "orders", label: "更换工单" },
+  { id: "batches", label: "备件批次" },
+];
 
-function MetricCard({ label, value, index }: { label: string; value: string; index: number }) {
-  return (
-    <article className="metric-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <i className={statusColors[index % statusColors.length]} />
-    </article>
-  );
+function computeMetrics(state: AppState) {
+  const levels = state.filters.map((f) => dpLevel(state, f.id));
+  return [
+    { label: "超区域上限", value: levels.filter((l) => l === "overLimit").length, tone: "danger" as const },
+    { label: "压差连续上升", value: levels.filter((l) => l === "rising").length, tone: "warn" as const },
+    { label: "未关闭工单", value: openWorkOrders(state).length, tone: "warn" as const },
+    { label: "在装过滤器", value: state.filters.length, tone: "ok" as const },
+  ];
 }
 
+const NOTICE_STYLE: Record<string, string> = {
+  ok: "notice-ok",
+  warn: "notice-warn",
+  err: "notice-err",
+};
+
 function App() {
-  const values = project.metrics.map((metric: string, index: number) => {
-    const base = [84, 12, 31, 7][index % 4];
-    return String(base + index * 3);
-  });
+  const { state, apply, resetDemo, notices, clearNotices, issues } = useStore();
+  const [tab, setTab] = useState<TabId>("inspection");
+  const metrics = useMemo(() => computeMetrics(state), [state]);
 
   return (
     <main className="app-shell">
       <section className="hero">
         <div>
-          <p className="eyebrow">{project.id} · port {project.port}</p>
-          <h1>{project.title}</h1>
-          <p className="subtitle">{project.subtitle}</p>
+          <p className="eyebrow">hxwl-09 · port 5109</p>
+          <h1>半导体洁净室巡检</h1>
+          <p className="subtitle">
+            过滤器压差趋势监控与更换工单闭环：巡检登记 → 连续上升/超上限自动派单 → 锁定读数 → 有效期内备件领用 → 复测下降关闭
+          </p>
         </div>
         <div className="stack-card">
-          <span>技术栈</span>
-          <strong>{project.stack}</strong>
+          <span>数据持久化</span>
+          <strong>localStorage 自动保存，刷新后趋势、工单与批次占用保持一致</strong>
+          <button type="button" onClick={resetDemo} className="reset-btn">
+            恢复演示数据
+          </button>
         </div>
       </section>
 
       <section className="metrics-grid">
-        {project.metrics.map((metric: string, index: number) => (
-          <MetricCard key={metric} label={metric} value={values[index]} index={index} />
+        {metrics.map((m) => (
+          <article key={m.label} className="metric-card">
+            <span>{m.label}</span>
+            <strong>{m.value}</strong>
+            <i className={m.tone === "ok" ? "status-ok" : m.tone === "warn" ? "status-watch" : "status-danger"} />
+          </article>
         ))}
       </section>
 
-      <section className="workspace">
-        <aside className="panel narrow">
-          <h2>角色</h2>
-          <div className="chips">
-            {project.users.map((user: string) => (
-              <span key={user}>{user}</span>
-            ))}
-          </div>
-          <h2>筛选</h2>
-          <div className="chips muted">
-            {project.filters.map((filter: string) => (
-              <button key={filter}>{filter}</button>
-            ))}
-          </div>
-        </aside>
+      {issues.length > 0 && (
+        <div className="consistency-banner">
+          <strong>一致性校验异常：</strong>
+          {issues.join("；")}
+        </div>
+      )}
 
-        <section className="panel">
-          <div className="section-heading">
-            <div>
-              <p>{project.domain}</p>
-              <h2>记录字段</h2>
+      {notices.length > 0 && (
+        <div className="notice-stack">
+          {notices.map((n, i) => (
+            <div key={`${n.kind}-${i}`} className={`notice ${NOTICE_STYLE[n.kind]}`}>
+              {n.text}
             </div>
-            <button className="primary-action">新增记录</button>
-          </div>
-          <div className="field-grid">
-            {project.fields.map((field: string) => (
-              <label key={field}>
-                <span>{field}</span>
-                <input placeholder={"填写" + field} />
-              </label>
-            ))}
-          </div>
-        </section>
-      </section>
-
-      <section className="records panel">
-        <div className="section-heading">
-          <div>
-            <p>示例数据</p>
-            <h2>近期记录</h2>
-          </div>
-          <button>导出摘要</button>
-        </div>
-        <div className="record-list">
-          {project.records.map((record: string[], index: number) => (
-            <article key={record.join("-")} className="record-card">
-              <div className="record-index">{String(index + 1).padStart(2, "0")}</div>
-              <div>
-                <h3>{record[0]}</h3>
-                <p>{record.slice(1).join(" · ")}</p>
-              </div>
-            </article>
           ))}
+          <button type="button" className="notice-close" onClick={clearNotices}>
+            知道了
+          </button>
         </div>
-      </section>
+      )}
+
+      <nav className="tabs">
+        {TABS.map((t) => (
+          <button key={t.id} type="button" className={tab === t.id ? "is-active" : ""} onClick={() => setTab(t.id)}>
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === "inspection" && <InspectionTab state={state} onApply={apply} />}
+      {tab === "trend" && <TrendTab state={state} />}
+      {tab === "orders" && <WorkOrdersTab state={state} onApply={apply} />}
+      {tab === "batches" && <BatchesTab state={state} />}
+
+      <footer className="page-footer">
+        闭环规则：同一过滤器仅一张未关闭工单 · 更换前必须锁定读数 · 仅可领用有效期内批次并释放旧批次占用 · 复测未下降不得关闭 ·
+        补录须带原因且保留旧值
+      </footer>
     </main>
   );
 }
